@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Scale } from 'lucide-react';
 
@@ -21,6 +21,14 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
  * Mobile: Tabs to alternate between panels.
  */
 export default function ValidacionPage() {
+  return (
+    <Suspense>
+      <ValidacionPageContent />
+    </Suspense>
+  );
+}
+
+function ValidacionPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const docParam = searchParams.get('doc');
