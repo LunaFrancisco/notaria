@@ -23,7 +23,7 @@ import {
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { useContractStore, FIELD_LABEL_MAP } from '@/store/contract-store';
-import { dispatchSidebarItemClick } from '@/components/contract/extracted-data-list';
+import { dispatchSidebarItemClick } from '@/lib/events';
 import { logger } from '@/lib/logger';
 
 /** Minimum readiness threshold (fraction) to allow export */

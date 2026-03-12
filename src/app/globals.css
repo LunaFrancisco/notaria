@@ -245,6 +245,45 @@
   @apply outline-2 outline-notary-accent rounded-sm bg-white/80;
 }
 
+/* Accordion animation */
+.accordion-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 250ms ease;
+}
+.accordion-content[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.accordion-content > div {
+  overflow: hidden;
+}
+
+/* Viewer pane transition */
+.viewer-pane {
+  transition: flex-basis 300ms ease, opacity 200ms ease;
+}
+
+/* Source badge */
+.source-badge {
+  @apply cursor-pointer;
+}
+
+/* Thumbnail strip */
+.thumbnail-strip {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.thumbnail-item {
+  scroll-snap-align: start;
+}
+
+/* Progress ring */
+.progress-ring-circle {
+  transition: stroke-dashoffset 300ms ease;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
 /* Print styles */
 @media print {
   body {

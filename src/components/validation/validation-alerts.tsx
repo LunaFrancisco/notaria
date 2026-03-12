@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useContractStore } from '@/store/contract-store';
 import type { ValidationIssue, ValidationResult } from '@/lib/types/validation';
-import { dispatchSidebarItemClick } from '@/components/contract/extracted-data-list';
+import { dispatchSidebarItemClick } from '@/lib/events';
 
 function severityIcon(severity: ValidationIssue['severity']) {
   switch (severity) {

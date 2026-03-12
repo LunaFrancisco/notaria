@@ -11,7 +11,7 @@ import { useTraceabilityPopover } from './traceability-popover';
 import {
   SIDEBAR_ITEM_CLICK_EVENT,
   dispatchPlaceholderFocus,
-} from './extracted-data-list';
+} from '@/lib/events';
 
 /**
  * ContractEditor renders the contract template with live placeholders

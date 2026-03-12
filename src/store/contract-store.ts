@@ -149,6 +149,9 @@ interface ContractStoreState {
   isClassifying: boolean;
   // Global processing flag
   isProcessing: boolean;
+  // Document viewer state
+  activeDocumentKey: string | null;
+  viewerZoom: number;
 }
 
 /** Result of classifying and assigning a single file */
@@ -175,6 +178,12 @@ interface ContractStoreActions {
   mergeExtractions(): Promise<void>;
   /** Validate the current contract data */
   validateContractData(): Promise<void>;
+  /** Open the document viewer for a specific slot */
+  openDocumentViewer(slotKey: string): void;
+  /** Close the document viewer */
+  closeDocumentViewer(): void;
+  /** Set the viewer zoom level */
+  setViewerZoom(level: number): void;
   /** Reset store to initial state */
   reset(): void;
 }
@@ -212,6 +221,8 @@ function createInitialState(): ContractStoreState {
     validationResult: null,
     isClassifying: false,
     isProcessing: false,
+    activeDocumentKey: null,
+    viewerZoom: 0,
   };
 }
 
@@ -523,6 +534,18 @@ export const useContractStore = create<ContractStore>((set, get) => ({
       const message = error instanceof Error ? error.message : 'Validation failed';
       throw new Error(message);
     }
+  },
+
+  openDocumentViewer(slotKey: string) {
+    set({ activeDocumentKey: slotKey, viewerZoom: 0 });
+  },
+
+  closeDocumentViewer() {
+    set({ activeDocumentKey: null });
+  },
+
+  setViewerZoom(level: number) {
+    set({ viewerZoom: level });
   },
 
   reset() {

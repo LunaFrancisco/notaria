@@ -16,7 +16,6 @@ import { useContractStore } from '@/store/contract-store';
 import { ExportDialog } from '@/components/export/export-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,7 +65,6 @@ export function WorkspaceHeader() {
   const { percentage, label, variant } = useCompletion();
   const validateContractData = useContractStore((s) => s.validateContractData);
   const [isValidating, setIsValidating] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const handleValidate = useCallback(async () => {
     setIsValidating(true);
@@ -103,18 +101,46 @@ export function WorkspaceHeader() {
         {label}
       </Badge>
 
-      {/* Progress bar — hidden on very small screens */}
-      <div className="hidden items-center gap-2 sm:flex sm:min-w-[120px] md:min-w-[180px]">
-        <Progress value={percentage} className="h-2 flex-1" />
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {percentage}%
-        </span>
+      {/* Circular progress ring */}
+      <div className="hidden sm:flex items-center">
+        <svg width="32" height="32" viewBox="0 0 32 32" className="shrink-0">
+          <circle
+            cx="16"
+            cy="16"
+            r="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            className="text-muted/40"
+          />
+          <circle
+            cx="16"
+            cy="16"
+            r="13"
+            fill="none"
+            stroke="var(--notary-accent)"
+            strokeWidth="3"
+            strokeDasharray={`${2 * Math.PI * 13}`}
+            strokeDashoffset={`${2 * Math.PI * 13 * (1 - percentage / 100)}`}
+            strokeLinecap="round"
+            className="progress-ring-circle"
+          />
+          <text
+            x="16"
+            y="16"
+            textAnchor="middle"
+            dominantBaseline="central"
+            className="fill-foreground text-[8px] font-semibold"
+          >
+            {percentage}%
+          </text>
+        </svg>
       </div>
 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Desktop actions */}
+      {/* Verify button — desktop only */}
       <div className="hidden items-center gap-2 md:flex">
         <Button variant="outline" size="sm" onClick={handleValidate} disabled={isValidating}>
           {isValidating ? (
@@ -124,17 +150,19 @@ export function WorkspaceHeader() {
           )}
           Verificar documentos
         </Button>
-        <ExportDialog
-          trigger={
-            <Button size="sm">
-              <Download className="mr-1.5 h-4 w-4" />
-              Exportar
-            </Button>
-          }
-        />
       </div>
 
-      {/* Mobile dropdown */}
+      {/* Export button — always visible */}
+      <ExportDialog
+        trigger={
+          <Button size="sm" className="sm:gap-1.5">
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Exportar</span>
+          </Button>
+        }
+      />
+
+      {/* Mobile dropdown for remaining actions */}
       <div className="md:hidden">
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -149,20 +177,12 @@ export function WorkspaceHeader() {
               <FileSearch className="mr-2 h-4 w-4" />
               Verificar documentos
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setExportDialogOpen(true)}>
-              <Download className="mr-2 h-4 w-4" />
-              Exportar
-            </DropdownMenuItem>
             <DropdownMenuItem>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               {label} — {percentage}%
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ExportDialog
-          open={exportDialogOpen}
-          onOpenChange={setExportDialogOpen}
-        />
       </div>
     </header>
   );
