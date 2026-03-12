@@ -11,6 +11,13 @@ export interface EnrichedExtractionResult extends ExtractionResult {
   processedAt: string;
 }
 
+/** Classification result from the classify-only endpoint */
+export interface ClassificationResult {
+  file: string;
+  documentType: string;
+  confidence: number;
+}
+
 /** Error response shape from process API */
 export interface ProcessErrorResponse {
   error: string;
@@ -18,6 +25,7 @@ export interface ProcessErrorResponse {
 }
 
 export interface DocumentProcessingService {
+  classifyDocument(file: File): Promise<ClassificationResult>;
   processDocument(file: File): Promise<EnrichedExtractionResult>;
   mergeResults(extractions: ExtractionResult[]): Promise<CompraventaVehiculoData>;
   validateContract(
@@ -27,6 +35,23 @@ export interface DocumentProcessingService {
 }
 
 export class RealProcessingService implements DocumentProcessingService {
+  async classifyDocument(file: File): Promise<ClassificationResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/documents/classify', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorBody = (await response.json()) as ProcessErrorResponse;
+      throw new Error(errorBody.error || `Classification failed: ${response.status}`);
+    }
+
+    return response.json() as Promise<ClassificationResult>;
+  }
+
   async processDocument(file: File): Promise<EnrichedExtractionResult> {
     const formData = new FormData();
     formData.append('file', file);

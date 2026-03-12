@@ -8,6 +8,7 @@ import {
   AlertCircle,
   RefreshCw,
   Eye,
+  Scan,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,7 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { DropZone } from './drop-zone';
-import { useContractStore, DOCUMENT_META } from '@/store/contract-store';
+import { useContractStore, DOCUMENT_META, getDocumentTypeLabel } from '@/store/contract-store';
 import type { DocumentProcessingState } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -147,7 +148,8 @@ export function DocumentPanel() {
   const router = useRouter();
   const documents = useContractStore((s) => s.documents);
   const isProcessing = useContractStore((s) => s.isProcessing);
-  const addDocument = useContractStore((s) => s.addDocument);
+  const isClassifying = useContractStore((s) => s.isClassifying);
+  const classifyAndAssignFiles = useContractStore((s) => s.classifyAndAssignFiles);
   const processDocument = useContractStore((s) => s.processDocument);
   const processAllDocuments = useContractStore((s) => s.processAllDocuments);
 
@@ -159,28 +161,52 @@ export function DocumentPanel() {
   const completionPercent = Math.round((uploadedCount / totalRequired) * 100);
 
   const handleFilesSelected = useCallback(
-    (files: File[]) => {
-      // Try to auto-assign files to document slots based on simple name heuristics
-      for (const file of files) {
-        const key = guessDocumentKey(file.name);
-        if (key && !documents[key]?.file) {
-          addDocument(key, file);
-          toast(`Documento asignado: ${file.name}`);
-        } else {
-          // Assign to first empty required slot
-          const emptySlot = DOCUMENT_META.find(
-            (meta) => !documents[meta.key]?.file,
+    async (files: File[]) => {
+      const toastId = toast.loading(
+        `Clasificando ${files.length} documento${files.length > 1 ? 's' : ''}...`,
+        { icon: <Scan className="h-4 w-4 animate-pulse" /> },
+      );
+
+      const results = await classifyAndAssignFiles(files);
+
+      toast.dismiss(toastId);
+
+      for (const result of results) {
+        if (result.assignedSlot) {
+          const typeLabel = getDocumentTypeLabel(result.classification.documentType);
+          const slotMeta = DOCUMENT_META.find((m) => m.key === result.assignedSlot);
+          const confidence = Math.round(result.classification.confidence * 100);
+          toast.success(
+            `${result.file.name} → ${slotMeta?.label ?? result.assignedSlot} (${typeLabel}, ${confidence}%)`,
           );
-          if (emptySlot) {
-            addDocument(emptySlot.key, file);
-            toast(`Documento asignado a ${emptySlot.label}: ${file.name}`);
-          } else {
-            toast.error(`No hay espacio para: ${file.name}`);
-          }
+        } else {
+          toast.error(`No se pudo asignar: ${result.file.name}`);
+        }
+      }
+
+      // Auto-process all pending documents after classification
+      const hasPending = Object.values(useContractStore.getState().documents).some(
+        (d) => d.status === 'pending',
+      );
+      if (hasPending) {
+        const processToastId = toast.loading('Procesando documentos...');
+        await processAllDocuments();
+        toast.dismiss(processToastId);
+
+        const state = useContractStore.getState();
+        const errors = Object.values(state.documents).filter(
+          (d) => d.status === 'error',
+        );
+        if (errors.length > 0) {
+          toast.error(
+            `${errors.length} documento(s) con errores. Revise y reintente.`,
+          );
+        } else {
+          toast.success('Todos los documentos procesados correctamente');
         }
       }
     },
-    [documents, addDocument],
+    [classifyAndAssignFiles, processAllDocuments],
   );
 
   const handleRetry = useCallback(
@@ -224,6 +250,7 @@ export function DocumentPanel() {
   const hasPendingDocs = Object.values(documents).some(
     (d) => d.status === 'pending',
   );
+  const isBusy = isProcessing || isClassifying;
 
   return (
     <div className="flex h-full flex-col">
@@ -240,7 +267,7 @@ export function DocumentPanel() {
             size="sm"
             className="h-7 text-xs"
             onClick={handleProcessAll}
-            disabled={isProcessing}
+            disabled={isBusy}
           >
             {isProcessing ? (
               <>
@@ -259,7 +286,7 @@ export function DocumentPanel() {
         <div className="flex flex-col gap-3 p-4">
           <DropZone
             onFilesSelected={handleFilesSelected}
-            disabled={isProcessing}
+            disabled={isBusy}
           />
 
           <Separator />
@@ -290,26 +317,3 @@ export function DocumentPanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Simple filename heuristic to auto-assign uploaded files to document slots */
-function guessDocumentKey(filename: string): string | null {
-  const lower = filename.toLowerCase();
-
-  if (lower.includes('rvm') || lower.includes('registro')) {
-    return 'certificado_rvm';
-  }
-  if (lower.includes('permiso') || lower.includes('circulacion')) {
-    return 'permiso_circulacion';
-  }
-  if (lower.includes('deuda') && lower.includes('vendedor')) {
-    return 'deuda_alimentaria_vendedor';
-  }
-  if (lower.includes('deuda') && lower.includes('comprador')) {
-    return 'deuda_alimentaria_comprador';
-  }
-
-  return null;
-}

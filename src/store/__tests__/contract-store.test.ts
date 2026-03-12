@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useContractStore, setProcessingService } from '../contract-store';
+import { useContractStore, setProcessingService, mapDocumentTypeToSlot } from '../contract-store';
 import type { DocumentProcessingService, EnrichedExtractionResult } from '@/lib/services/processing-service';
 import type { CompraventaVehiculoData, ValidationResult } from '@/lib/types';
 import { emptyCompraventaData } from '@/lib/types';
@@ -32,6 +32,11 @@ function createMockService(
   overrides: Partial<DocumentProcessingService> = {},
 ): DocumentProcessingService {
   return {
+    classifyDocument: vi.fn().mockResolvedValue({
+      file: 'test.pdf',
+      documentType: 'certificado_rvm',
+      confidence: 0.95,
+    }),
     processDocument: vi.fn().mockResolvedValue(createMockExtractionResult()),
     mergeResults: vi.fn().mockResolvedValue(emptyCompraventaData()),
     validateContract: vi.fn().mockResolvedValue({
@@ -332,6 +337,101 @@ describe('contract-store', () => {
       const state = useContractStore.getState();
       expect(state.validationResult).toEqual(validationResult);
       expect(state.validationResult?.issues).toHaveLength(1);
+    });
+  });
+
+  describe('mapDocumentTypeToSlot', () => {
+    it('maps certificado_rvm to its slot when empty', () => {
+      expect(mapDocumentTypeToSlot('certificado_rvm', {})).toBe('certificado_rvm');
+    });
+
+    it('returns null when certificado_rvm slot is occupied', () => {
+      const docs = {
+        certificado_rvm: { status: 'pending' as const, file: createMockFile('rvm.pdf'), error: null, extractionResult: null },
+      };
+      expect(mapDocumentTypeToSlot('certificado_rvm', docs)).toBeNull();
+    });
+
+    it('maps certificado_no_deuda to vendedor slot first', () => {
+      expect(mapDocumentTypeToSlot('certificado_no_deuda', {})).toBe('deuda_alimentaria_vendedor');
+    });
+
+    it('maps certificado_no_deuda to comprador slot when vendedor is occupied', () => {
+      const docs = {
+        deuda_alimentaria_vendedor: { status: 'pending' as const, file: createMockFile('d1.pdf'), error: null, extractionResult: null },
+      };
+      expect(mapDocumentTypeToSlot('certificado_no_deuda', docs)).toBe('deuda_alimentaria_comprador');
+    });
+
+    it('maps cedula_identidad to vendedor slot first, then comprador', () => {
+      expect(mapDocumentTypeToSlot('cedula_identidad', {})).toBe('cedula_identidad_vendedor');
+
+      const docs = {
+        cedula_identidad_vendedor: { status: 'pending' as const, file: createMockFile('ci1.pdf'), error: null, extractionResult: null },
+      };
+      expect(mapDocumentTypeToSlot('cedula_identidad', docs)).toBe('cedula_identidad_comprador');
+    });
+
+    it('returns null for unknown document types', () => {
+      expect(mapDocumentTypeToSlot('unknown', {})).toBeNull();
+    });
+  });
+
+  describe('classifyAndAssignFiles', () => {
+    it('classifies files and assigns them to correct slots', async () => {
+      const service = createMockService({
+        classifyDocument: vi.fn()
+          .mockResolvedValueOnce({ file: 'rvm.pdf', documentType: 'certificado_rvm', confidence: 0.95 })
+          .mockResolvedValueOnce({ file: 'deuda.pdf', documentType: 'certificado_no_deuda', confidence: 0.90 }),
+      });
+      setProcessingService(service);
+
+      const results = await useContractStore.getState().classifyAndAssignFiles([
+        createMockFile('rvm.pdf'),
+        createMockFile('deuda.pdf'),
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].assignedSlot).toBe('certificado_rvm');
+      expect(results[1].assignedSlot).toBe('deuda_alimentaria_vendedor');
+
+      const state = useContractStore.getState();
+      expect(state.documents['certificado_rvm']).toBeDefined();
+      expect(state.documents['deuda_alimentaria_vendedor']).toBeDefined();
+      expect(state.isClassifying).toBe(false);
+    });
+
+    it('falls back to first empty slot on classification error', async () => {
+      const service = createMockService({
+        classifyDocument: vi.fn().mockRejectedValue(new Error('API error')),
+      });
+      setProcessingService(service);
+
+      const results = await useContractStore.getState().classifyAndAssignFiles([
+        createMockFile('mystery.pdf'),
+      ]);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].classification.documentType).toBe('unknown');
+      expect(results[0].assignedSlot).toBe('certificado_rvm'); // first empty slot
+    });
+
+    it('returns null slot when all slots are full', async () => {
+      const service = createMockService({
+        classifyDocument: vi.fn().mockResolvedValue({
+          file: 'extra.pdf', documentType: 'certificado_rvm', confidence: 0.9,
+        }),
+      });
+      setProcessingService(service);
+
+      // Fill the certificado_rvm slot
+      useContractStore.getState().addDocument('certificado_rvm', createMockFile('existing.pdf'));
+
+      const results = await useContractStore.getState().classifyAndAssignFiles([
+        createMockFile('extra.pdf'),
+      ]);
+
+      expect(results[0].assignedSlot).toBeNull();
     });
   });
 

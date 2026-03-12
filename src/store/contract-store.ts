@@ -19,7 +19,7 @@ import {
   deriveCanonicalExtensions,
 } from '@/lib/canonical';
 import { mapConfidenceToLevel } from '@/lib/canonical';
-import type { DocumentProcessingService, EnrichedExtractionResult } from '@/lib/services/processing-service';
+import type { DocumentProcessingService, EnrichedExtractionResult, ClassificationResult } from '@/lib/services/processing-service';
 import { logger } from '@/lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +38,8 @@ export const DOCUMENT_META: DocumentMeta[] = [
   { key: 'permiso_circulacion', label: 'Permiso de circulación', description: 'Permiso de circulación vigente', required: true },
   { key: 'deuda_alimentaria_vendedor', label: 'Cert. deuda alimentaria (vendedor)', description: 'Certificado del Registro Civil', required: true },
   { key: 'deuda_alimentaria_comprador', label: 'Cert. deuda alimentaria (comprador)', description: 'Certificado del Registro Civil', required: true },
+  { key: 'cedula_identidad_vendedor', label: 'Cédula de identidad (vendedor)', description: 'Carnet de identidad del vendedor', required: true },
+  { key: 'cedula_identidad_comprador', label: 'Cédula de identidad (comprador)', description: 'Carnet de identidad del comprador', required: true },
 ];
 
 export const FIELD_LABEL_MAP: Record<string, string> = {
@@ -84,6 +86,49 @@ export const FIELD_LABEL_MAP: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Classification → slot mapping
+// ---------------------------------------------------------------------------
+
+/** Maps a classified document type to the best available document slot key. */
+export function mapDocumentTypeToSlot(
+  documentType: string,
+  documents: Record<string, DocumentProcessingState>,
+): string | null {
+  switch (documentType) {
+    case 'certificado_rvm':
+      return documents['certificado_rvm']?.file ? null : 'certificado_rvm';
+
+    case 'permiso_circulacion':
+      return documents['permiso_circulacion']?.file ? null : 'permiso_circulacion';
+
+    case 'certificado_no_deuda':
+      if (!documents['deuda_alimentaria_vendedor']?.file) return 'deuda_alimentaria_vendedor';
+      if (!documents['deuda_alimentaria_comprador']?.file) return 'deuda_alimentaria_comprador';
+      return null;
+
+    case 'cedula_identidad':
+      if (!documents['cedula_identidad_vendedor']?.file) return 'cedula_identidad_vendedor';
+      if (!documents['cedula_identidad_comprador']?.file) return 'cedula_identidad_comprador';
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+/** Human-readable label for a classified document type. */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  certificado_rvm: 'Certificado RVM',
+  permiso_circulacion: 'Permiso de Circulación',
+  certificado_no_deuda: 'Cert. Deuda Alimentaria',
+  cedula_identidad: 'Cédula de Identidad',
+};
+
+export function getDocumentTypeLabel(documentType: string): string {
+  return DOCUMENT_TYPE_LABELS[documentType] ?? documentType;
+}
+
+// ---------------------------------------------------------------------------
 // Store types
 // ---------------------------------------------------------------------------
 
@@ -100,8 +145,17 @@ interface ContractStoreState {
   contractData: CompraventaVehiculoData;
   // Latest validation result
   validationResult: ValidationResult | null;
+  // True while files are being classified for slot assignment
+  isClassifying: boolean;
   // Global processing flag
   isProcessing: boolean;
+}
+
+/** Result of classifying and assigning a single file */
+export interface FileClassificationResult {
+  file: File;
+  classification: ClassificationResult;
+  assignedSlot: string | null;
 }
 
 interface ContractStoreActions {
@@ -109,6 +163,8 @@ interface ContractStoreActions {
   addDocument(key: string, file: File): void;
   /** Remove a document and its state */
   removeDocument(key: string): void;
+  /** Classify files and auto-assign them to the correct document slots */
+  classifyAndAssignFiles(files: File[]): Promise<FileClassificationResult[]>;
   /** Process a single document through the pipeline */
   processDocument(key: string): Promise<void>;
   /** Process all pending documents, merge, and derive extensions */
@@ -154,6 +210,7 @@ function createInitialState(): ContractStoreState {
     extractions: [],
     contractData: emptyCompraventaData(),
     validationResult: null,
+    isClassifying: false,
     isProcessing: false,
   };
 }
@@ -192,6 +249,58 @@ export const useContractStore = create<ContractStore>((set, get) => ({
         extractions: remainingExtractions,
       };
     });
+  },
+
+  async classifyAndAssignFiles(files: File[]): Promise<FileClassificationResult[]> {
+    set({ isClassifying: true });
+    const service = getProcessingService();
+    const results: FileClassificationResult[] = [];
+
+    for (const file of files) {
+      try {
+        logger.info('document:classifying', { filename: file.name, size: file.size });
+
+        const classification = await service.classifyDocument(file);
+        const currentDocs = get().documents;
+        const slot = mapDocumentTypeToSlot(classification.documentType, currentDocs);
+
+        logger.info('document:classified-auto', {
+          filename: file.name,
+          type: classification.documentType,
+          confidence: classification.confidence,
+          assignedSlot: slot,
+        });
+
+        if (slot) {
+          get().addDocument(slot, file);
+        }
+
+        results.push({ file, classification, assignedSlot: slot });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Classification failed';
+        logger.error('document:classify-error', { filename: file.name, error: message });
+
+        // Fallback: assign to first empty slot
+        const currentDocs = get().documents;
+        const emptySlot = DOCUMENT_META.find(
+          (meta) => !currentDocs[meta.key]?.file,
+        );
+
+        const fallbackSlot = emptySlot?.key ?? null;
+        if (fallbackSlot) {
+          get().addDocument(fallbackSlot, file);
+        }
+
+        results.push({
+          file,
+          classification: { file: file.name, documentType: 'unknown', confidence: 0 },
+          assignedSlot: fallbackSlot,
+        });
+      }
+    }
+
+    set({ isClassifying: false });
+    return results;
   },
 
   async processDocument(key: string) {

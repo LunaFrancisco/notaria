@@ -5,6 +5,8 @@
 export { createProvider } from './providers';
 export type { LLMProvider, LoadedFile } from './providers';
 export { fileToLoadedFile, cleanupTempFile } from './file-loader';
+export { classifyDocument } from './classify';
+export { extractPdfText } from './pdf-text';
 export { extractFromDocument } from './extract';
 export { validateContract } from './validate';
 export { compraventaVehiculo } from './contract-def';
